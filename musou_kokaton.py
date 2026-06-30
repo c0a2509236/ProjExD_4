@@ -41,6 +41,8 @@ class Bird(pg.sprite.Sprite):
     """
     ゲームキャラクター（こうかとん）に関するクラス
     """
+
+    
     delta = {  # 押下キーと移動量の辞書
         pg.K_UP: (0, -1),
         pg.K_DOWN: (0, +1),
@@ -72,6 +74,8 @@ class Bird(pg.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.center = xy
         self.speed = 10
+        self.state="normal"
+        self.hyper_life=0
 
     def change_img(self, num: int, screen: pg.Surface):
         """
@@ -94,11 +98,18 @@ class Bird(pg.sprite.Sprite):
                 sum_mv[0] += mv[0]
                 sum_mv[1] += mv[1]
         self.rect.move_ip(self.speed*sum_mv[0], self.speed*sum_mv[1])
+        
         if check_bound(self.rect) != (True, True):
             self.rect.move_ip(-self.speed*sum_mv[0], -self.speed*sum_mv[1])
         if not (sum_mv[0] == 0 and sum_mv[1] == 0):
             self.dire = tuple(sum_mv)
             self.image = self.imgs[self.dire]
+        if self.state=="hyper":
+            
+            self.image=pg.transform.laplacian(self.image)
+            self.hyper_life-=1
+            if self.hyper_life<0:
+                self.state="normal"
         screen.blit(self.image, self.rect)
 
 
@@ -240,6 +251,24 @@ class Score:
     def update(self, screen: pg.Surface):
         self.image = self.font.render(f"Score: {self.value}", 0, self.color)
         screen.blit(self.image, self.rect)
+class Life:
+    #残機数に関するクラス
+    def __init__(self, num: int):
+        self.num = num
+        self.image = pg.Surface((40, 40))
+        self.image.set_colorkey((0, 0, 0))  # 背景を透過
+        points = [(16*math.sin(t/100)**3 +20,
+                   -(13*math.cos(t/100)-5*math.cos(2*t/100)-2*math.cos(3*t/100)-math.cos(4*t/100)) +20
+                   ) for t in range(0, 628) ]
+        pg.draw.polygon(self.image, (255,0,0), points)
+    def update(self, screen: pg.Surface):
+        for i in range(self.num):
+            # 最右のハートの重心が下から50、右から50
+            # 40x40のSurfaceの中心(20, 20)を考慮して左上の座標を計算
+            center_x = WIDTH - 50 - i * 50
+            center_y = HEIGHT - 50
+            screen.blit(self.image, (center_x - 20, center_y - 20))
+
 
 class EMP: #追加
     """
@@ -325,11 +354,13 @@ class Gravity(pg.sprite.Sprite):
         if self.life < 0:
             self.kill()
 
+    
 def main():
     pg.display.set_caption("真！こうかとん無双")
     screen = pg.display.set_mode((WIDTH, HEIGHT))
     bg_img = pg.image.load(f"fig/pg_bg.jpg")
     score = Score()
+    life=Life(3)#初期残機数を3でインスタンス化
 
     bird = Bird(3, (900, 400))
     bombs = pg.sprite.Group()
@@ -343,6 +374,11 @@ def main():
     clock = pg.time.Clock()
     while True:
         key_lst = pg.key.get_pressed()
+        if key_lst[pg.K_RSHIFT] and score.value>100:
+            bird.state="hyper"
+            bird.hyper_life=500
+            score.value-=100
+        
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 return 0
@@ -391,6 +427,16 @@ def main():
             exps.add(Explosion(bomb, 50))  # 爆発エフェクト
             score.value += 1  # 1点アップ
 
+        for bomb in pg.sprite.spritecollide(bird, bombs, True):
+            if bird.state=="hyper":
+                score.value+=1
+            else:  
+                # こうかとんと衝突した爆弾リスト
+                bird.change_img(8, screen)  # こうかとん悲しみエフェクト
+                score.update(screen)
+                pg.display.update()
+                time.sleep(2)
+                return
         for bomb in pg.sprite.groupcollide(bombs, shields, True, False).keys():
             exps.add(Explosion(bomb, 50))
 
@@ -409,6 +455,15 @@ def main():
         gravities.update()
         gravities.draw(screen)
 
+            bird.change_img(8, screen)# こうかとん悲しみエフェクト
+            life.num -=1
+            if  life.num<=0:#残機数が0になったら終了
+                score.update(screen)
+                life.update(screen)
+                pg.display.update()
+                time.sleep(2)
+                return
+            
         bird.update(key_lst, screen)
         beams.update()
         beams.draw(screen)
@@ -419,6 +474,7 @@ def main():
         exps.update()
         exps.draw(screen)
         score.update(screen)
+        life.update(screen)
         pg.display.update()
         tmr += 1
         clock.tick(50)
